@@ -23,25 +23,64 @@ const playSound = (type: keyof typeof SOUNDS) => {
 // [ 게임 플레이어 (URL 접속 시 렌더링) ]
 // ==========================================
 function GamePlayer({ grade, subject, gameType, keywords, gameContent, onClose }: any) {
+  const [stageIndex, setStageIndex] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [hp, setHp] = useState(3);
+  const [score, setScore] = useState(0);
+
+  // 로딩이나 데미 데이터 예외 처리
+  if (!gameContent || !gameContent.stages || gameContent.stages.length === 0) {
+    return (
+      <div className="w-full h-[100dvh] flex items-center justify-center p-4">
+        <div className="animate-pulse text-sky-500 font-bold">API 연결 중이거나 데이터가 부족합니다! 😅</div>
+      </div>
+    );
+  }
+
+  const isClear = stageIndex >= gameContent.stages.length;
+  const currentStage = isClear ? gameContent.stages[gameContent.stages.length - 1] : gameContent.stages[stageIndex];
+  
+  // 보스 체력 바 (스테이지가 지날 때마다 체력이 줄어드는 연출)
+  const totalStages = gameContent.stages.length;
+  const bossHpPercent = isClear ? 0 : 100 - (stageIndex / totalStages) * 100;
 
   const handleAnswer = async (ans: string) => {
-    if (!gameContent) return;
+    if (isClear || hp <= 0) return;
 
-    if (ans === gameContent.answer) {
+    if (ans === currentStage.answer) {
       playSound('ding');
-      setFeedback(gameContent.successMessage || '와! 정답이야! 🎉');
+      setFeedback(currentStage.successMessage || '공격 성공! 💥');
+      setScore(s => s + 500);
       
-      // 약간의 지연 후 성공 메시지 모달
+      // 정답 맞추면 1.5초 후 다음 스테이지로
       setTimeout(() => {
         playSound('swoosh');
-        alert(gameContent.successMessage || "성공적으로 클리어했어요! 멋져요! 😊");
-        if (onClose) onClose();
+        setFeedback(null);
+        setStageIndex(i => i + 1);
+        
+        // 만약 방금 푼 게 마지막 문제라면 클리어 알림
+        if (stageIndex + 1 >= totalStages) {
+          setTimeout(() => {
+            alert(`🎉 대단해요! [${gameContent.title}] 클리어!\n최종 점수는 ${score + 500}점입니다! 😊`);
+            if (onClose) onClose();
+          }, 500);
+        }
       }, 1500);
       
     } else {
       playSound('boing');
-      setFeedback('앗, 아쉬워! 다시 한번 생각해볼래? 💪');
+      setHp(h => Math.max(0, h - 1));
+      setFeedback('앗, 빗나갔어! 다시 생각해보자! 💪');
+      
+      if (hp - 1 <= 0) {
+        setTimeout(() => {
+          alert("체력을 모두 잃었어요. 다시 처음부터 도전해볼까요? 🥺");
+          setHp(3);
+          setScore(0);
+          setStageIndex(0);
+          setFeedback(null);
+        }, 1000);
+      }
     }
   };
 
@@ -61,60 +100,93 @@ function GamePlayer({ grade, subject, gameType, keywords, gameContent, onClose }
           )}
           <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200 flex-1">
             <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">점수 ⭐</span>
-            <span className="text-xl text-sky-500 leading-none font-bold">1,250</span>
+            <span className="text-xl text-sky-500 leading-none font-bold">{score.toLocaleString()}</span>
           </div>
           <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200 ml-3">
             <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">체력 💖</span>
             <div className="flex space-x-1 text-base">
-              <span>❤️</span><span>❤️</span><span className="opacity-30">❤️</span>
+              {[1,2,3].map(i => (
+                <span key={i} className={i <= hp ? "" : "opacity-30"}>❤️</span>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* 중앙 보스 영역 */}
-        <div className="flex-1 flex flex-col items-center justify-center relative px-4">
-          <div className="absolute top-2 w-full text-center px-4 animate-pulse">
-             <p className="inline-block bg-sky-100/90 text-sky-600 px-4 py-1.5 rounded-full text-[14px] font-sans font-bold tracking-wide border border-sky-300 shadow-sm">
-               {grade} {subject} 마스터 도전! 🔥
-             </p>
-             <p className="mt-2 text-sm text-gray-600 font-sans font-bold">테마: {keywords?.join(', ')}</p>
+        {/* 중앙 스토리 및 보스 영역 */}
+        <div className="flex-1 flex flex-col items-center justify-center relative px-4 text-center">
+          
+          <div className="absolute top-0 w-full px-4 mb-2 animate-in fade-in slide-in-from-top-2">
+            <h2 className="text-xl text-indigo-700 font-black drop-shadow-sm mb-1">{gameContent.title || "미니 놀이 대모험"}</h2>
+            {stageIndex === 0 && !feedback && (
+               <p className="text-[14px] text-gray-700 font-sans font-bold bg-white/80 px-4 py-2 rounded-2xl shadow-sm border border-gray-200">
+                 {gameContent.intro}
+               </p>
+            )}
           </div>
 
-          <div className="w-32 h-32 md:w-40 md:h-40 bg-pink-100 rounded-full border-[5px] border-white shadow-xl relative flex items-center justify-center animate-bounce duration-1000 mt-10">
-            <div className="absolute -top-4 bg-pink-500 text-white font-sans font-bold text-[13px] px-4 py-1 rounded-full shadow-md z-10 whitespace-nowrap tracking-wide border border-white">
-              {gameContent?.bossName || `${gameType} 진행중!`} 👾
-            </div>
-            <span className="text-6xl md:text-7xl drop-shadow-md">👾</span>
-            <div className="absolute -bottom-3 w-28 h-3.5 bg-white/90 rounded-full border border-gray-200 shadow-sm overflow-hidden p-0.5">
-              <div className="w-2/3 h-full bg-pink-500 rounded-full"></div>
-            </div>
-          </div>
+          {!isClear ? (
+             <div className="w-32 h-32 md:w-40 md:h-40 bg-pink-100 rounded-full border-[5px] border-white shadow-xl relative flex items-center justify-center animate-bounce duration-1000 mt-16 transition-all">
+               <div className="absolute -top-4 bg-pink-500 text-white font-sans font-bold text-[13px] px-4 py-1 rounded-full shadow-md z-10 whitespace-nowrap tracking-wide border border-white">
+                 {gameContent.bossName || "보스"}
+               </div>
+               <span className="text-6xl md:text-7xl drop-shadow-md">👾</span>
+               
+               {/* 보스 체력 표시 바 */}
+               <div className="absolute -bottom-3 w-28 h-3.5 bg-white/90 rounded-full border border-gray-200 shadow-sm overflow-hidden p-0.5">
+                 <div className="h-full bg-pink-500 rounded-full transition-all duration-500" style={{ width: `${bossHpPercent}%` }}></div>
+               </div>
+             </div>
+          ) : (
+             <div className="mt-16 animate-in zoom-in spin-in-12 duration-700">
+               <span className="text-8xl drop-shadow-xl">🏆</span>
+               <h3 className="text-2xl text-sky-500 font-black mt-4">완벽하게 정복 완료!</h3>
+             </div>
+          )}
         </div>
 
         {/* 하단 문제 영역 */}
         <div className="bg-white p-5 md:p-6 rounded-t-[36px] border-t-2 border-gray-100 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] pb-8 z-20">
-          <h3 className="text-center text-[22px] md:text-[24px] text-gray-800 mb-4 drop-shadow-sm leading-snug font-black whitespace-pre-wrap">
-            {gameContent?.question || `AI가 재미있는 문제를 만들고 있어요! ⏳\n잠시만 기다려주세요...`}
-          </h3>
+          {!isClear ? (
+            <>
+              <div className="mb-2 w-full flex justify-center">
+                <span className="bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full text-xs font-bold tracking-wide">
+                  ROUND {stageIndex + 1}
+                </span>
+              </div>
+              <p className="text-center text-[15px] font-sans font-bold text-gray-500 mb-2">
+                {currentStage.mission}
+              </p>
+              <h3 className="text-center text-[20px] md:text-[22px] text-gray-800 mb-4 drop-shadow-sm leading-snug font-black whitespace-pre-wrap">
+                {currentStage.question}
+              </h3>
 
-          {feedback && (
-            <div className="text-center text-[18px] text-violet-500 mb-4 font-sans font-bold animate-in fade-in zoom-in h-7">
-              {feedback}
+              {feedback && (
+                <div className="text-center text-[18px] text-violet-500 mb-4 font-sans font-bold animate-in fade-in zoom-in h-7">
+                  {feedback}
+                </div>
+              )}
+              {!feedback && <div className="h-7 mb-4"></div>}
+
+              <div className="grid grid-cols-2 gap-3 pb-2">
+                {(currentStage.options || []).map((ans: string) => (
+                  <button 
+                    key={ans} 
+                    onClick={() => handleAnswer(ans)}
+                    className="bg-white border-2 border-gray-200 py-4 md:py-5 min-h-[60px] rounded-[24px] shadow-sm text-[16px] md:text-[18px] text-gray-700 transition-all duration-200 active:scale-95 hover:bg-sky-50 hover:border-sky-400 font-bold break-words px-2"
+                  >
+                    {ans}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8">
+               <p className="text-xl text-gray-700 font-bold mb-4">정말 잘했어! 다음 스테이지도 기대할게!</p>
+               <button onClick={onClose} className="bg-sky-500 text-white font-bold text-xl px-10 py-4 rounded-full shadow-lg active:scale-95">
+                 돌아가기
+               </button>
             </div>
           )}
-          {!feedback && <div className="h-7 mb-4"></div>}
-
-          <div className="grid grid-cols-2 gap-3 pb-2">
-            {(gameContent?.options || []).map((ans: string) => (
-              <button 
-                key={ans} 
-                onClick={() => handleAnswer(ans)}
-                className="bg-white border-2 border-gray-200 py-4 md:py-5 min-h-[60px] rounded-[24px] shadow-sm text-lg md:text-xl text-gray-700 transition-all duration-200 active:scale-95 hover:bg-sky-50 hover:border-sky-400 font-bold break-words px-2"
-              >
-                {ans}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>
