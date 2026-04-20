@@ -22,23 +22,26 @@ const playSound = (type: keyof typeof SOUNDS) => {
 // ==========================================
 // [ 게임 플레이어 (URL 접속 시 렌더링) ]
 // ==========================================
-function GamePlayer({ grade, subject, gameType, keywords }: any) {
+function GamePlayer({ grade, subject, gameType, keywords, gameContent, onClose }: any) {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleAnswer = async (ans: string) => {
-    if (ans === '3/4') {
+    if (!gameContent) return;
+
+    if (ans === gameContent.answer) {
       playSound('ding');
-      setFeedback('와! 정답이야! 🎉');
+      setFeedback(gameContent.successMessage || '와! 정답이야! 🎉');
       
       // 약간의 지연 후 성공 메시지 모달
       setTimeout(() => {
         playSound('swoosh');
-        alert("성공적으로 클리어했어요! 멋져요! 😊");
-      }, 1000);
+        alert(gameContent.successMessage || "성공적으로 클리어했어요! 멋져요! 😊");
+        if (onClose) onClose();
+      }, 1500);
       
     } else {
       playSound('boing');
-      setFeedback('앗, 아쉬워! 다시 한번 생각볼래? 💪');
+      setFeedback('앗, 아쉬워! 다시 한번 생각해볼래? 💪');
     }
   };
 
@@ -50,12 +53,17 @@ function GamePlayer({ grade, subject, gameType, keywords }: any) {
       <div className="relative z-10 w-full max-w-[430px] mx-auto h-[100dvh] bg-white/80 backdrop-blur-[20px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden">
         
         {/* 상단 HUD */}
-        <div className="flex justify-between p-4 z-10 shrink-0">
-          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200">
+        <div className="flex justify-between p-4 z-10 shrink-0 select-none">
+          {onClose && (
+            <button onClick={onClose} className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center text-gray-700 shadow-sm border border-gray-200 active:scale-90 mr-3 text-2xl font-bold">
+              ✕
+            </button>
+          )}
+          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200 flex-1">
             <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">점수 ⭐</span>
             <span className="text-xl text-sky-500 leading-none font-bold">1,250</span>
           </div>
-          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200">
+          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200 ml-3">
             <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">체력 💖</span>
             <div className="flex space-x-1 text-base">
               <span>❤️</span><span>❤️</span><span className="opacity-30">❤️</span>
@@ -69,12 +77,12 @@ function GamePlayer({ grade, subject, gameType, keywords }: any) {
              <p className="inline-block bg-sky-100/90 text-sky-600 px-4 py-1.5 rounded-full text-[14px] font-sans font-bold tracking-wide border border-sky-300 shadow-sm">
                {grade} {subject} 마스터 도전! 🔥
              </p>
-             <p className="mt-2 text-sm text-gray-600 font-sans font-bold">테마: {keywords.join(', ')}</p>
+             <p className="mt-2 text-sm text-gray-600 font-sans font-bold">테마: {keywords?.join(', ')}</p>
           </div>
 
           <div className="w-32 h-32 md:w-40 md:h-40 bg-pink-100 rounded-full border-[5px] border-white shadow-xl relative flex items-center justify-center animate-bounce duration-1000 mt-10">
             <div className="absolute -top-4 bg-pink-500 text-white font-sans font-bold text-[13px] px-4 py-1 rounded-full shadow-md z-10 whitespace-nowrap tracking-wide border border-white">
-              {gameType} 진행중! 👾
+              {gameContent?.bossName || `${gameType} 진행중!`} 👾
             </div>
             <span className="text-6xl md:text-7xl drop-shadow-md">👾</span>
             <div className="absolute -bottom-3 w-28 h-3.5 bg-white/90 rounded-full border border-gray-200 shadow-sm overflow-hidden p-0.5">
@@ -85,8 +93,8 @@ function GamePlayer({ grade, subject, gameType, keywords }: any) {
 
         {/* 하단 문제 영역 */}
         <div className="bg-white p-5 md:p-6 rounded-t-[36px] border-t-2 border-gray-100 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] pb-8 z-20">
-          <h3 className="text-center text-[24px] text-gray-800 mb-4 drop-shadow-sm leading-snug font-black">
-            1/4 더하기 2/4 의<br />정답은 무얼까? 😊
+          <h3 className="text-center text-[22px] md:text-[24px] text-gray-800 mb-4 drop-shadow-sm leading-snug font-black whitespace-pre-wrap">
+            {gameContent?.question || `AI가 재미있는 문제를 만들고 있어요! ⏳\n잠시만 기다려주세요...`}
           </h3>
 
           {feedback && (
@@ -97,11 +105,11 @@ function GamePlayer({ grade, subject, gameType, keywords }: any) {
           {!feedback && <div className="h-7 mb-4"></div>}
 
           <div className="grid grid-cols-2 gap-3 pb-2">
-            {['3/4', '2/8', '3/8', '4/4'].map((ans) => (
+            {(gameContent?.options || []).map((ans: string) => (
               <button 
                 key={ans} 
                 onClick={() => handleAnswer(ans)}
-                className="bg-white border-2 border-gray-200 py-5 min-h-[60px] rounded-[24px] shadow-sm text-2xl text-gray-700 transition-all duration-200 active:scale-95 hover:bg-sky-50 hover:border-sky-400 font-bold"
+                className="bg-white border-2 border-gray-200 py-4 md:py-5 min-h-[60px] rounded-[24px] shadow-sm text-lg md:text-xl text-gray-700 transition-all duration-200 active:scale-95 hover:bg-sky-50 hover:border-sky-400 font-bold break-words px-2"
               >
                 {ans}
               </button>
@@ -131,6 +139,7 @@ export default function App() {
   // 생성된 URL 상태
   const [generatedUrl, setGeneratedUrl] = useState<string>('');
   const [isGameModalOpen, setIsGameModalOpen] = useState(false);
+  const [gameContent, setGameContent] = useState<any>(null); // AI가 생성한 게임 데이터
 
   // ==========================================
   // [ 카메라 엔진 ]
@@ -151,6 +160,7 @@ export default function App() {
         setSubject(decoded.subject);
         setGameType(decoded.gameType);
         setKeywords(decoded.keywords);
+        setGameContent(decoded.gameContent); // 추가!
         setIsPlayMode(true);
       } catch (err) {
         console.error("Failed to parse play data", err);
@@ -202,10 +212,13 @@ export default function App() {
            setKeywords(data.keywords.slice(0, 4));
         }
       } else {
-        console.error("AI 분석 실패:", await res.text());
+        const errText = await res.text();
+        console.error("AI 분석 실패:", errText);
+        alert(`API 오류가 발생했습니다. (설정에서 올바른 API 키를 입력했는지 확인해주세요!)\n\n상세:${errText}`);
       }
     } catch (err) {
       console.error("Analysis error", err);
+      alert("네트워크 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setLoading(false);
       setStep(2);
@@ -290,18 +303,33 @@ export default function App() {
     playSound('ding');
     setLoading(true);
     
-    // 게임 결과를 Supabase에 저장 (더미 점수로 일단 생성)
-    await saveGameResult({
-      grade,
-      subject,
-      gameType,
-      keywords,
-      score: 0,
-    });
+    try {
+      // 1. AI에게 게임 데이터 생성 요청
+      const res = await fetch("/api/generate-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grade, subject, gameType, keywords })
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`게임 생성 API 호출 실패: ${errorText}`);
+      }
+      
+      const generatedContent = await res.json();
+      setGameContent(generatedContent);
 
-    setTimeout(() => {
-      // 진짜로 플레이 가능한 URL (base64 인코딩)
-      const gameConfig = { grade, subject, gameType, keywords };
+      // 2. 게임 결과를 Supabase에 저장 (더미 점수)
+      await saveGameResult({
+        grade,
+        subject,
+        gameType,
+        keywords,
+        score: 0,
+      });
+
+      // 3. 진짜로 플레이 가능한 URL (base64 인코딩) 생성
+      const gameConfig = { grade, subject, gameType, keywords, gameContent: generatedContent };
       const base64Config = btoa(encodeURIComponent(JSON.stringify(gameConfig)));
       const baseUrl = window.location.href.split('?')[0];
       const realPlayUrl = `${baseUrl}?play=${base64Config}`;
@@ -309,11 +337,16 @@ export default function App() {
       setGeneratedUrl(realPlayUrl);
       setLoading(false);
       setStep(3);
-    }, 2000);
+
+    } catch (e: any) {
+      console.error(e);
+      alert(`게임 생성에 실패했습니다. (API 키를 갱신하거나 확인해주세요!)\n\n상세: ${e?.message || e}`);
+      setLoading(false);
+    }
   };
 
   if (isPlayMode) {
-    return <GamePlayer grade={grade} subject={subject} gameType={gameType} keywords={keywords} />;
+    return <GamePlayer grade={grade} subject={subject} gameType={gameType} keywords={keywords} gameContent={gameContent} />;
   }
 
   return (
@@ -519,10 +552,11 @@ export default function App() {
 
             <button
               onClick={handleMakeGame}
-              className="w-full shrink-0 bg-gradient-to-r from-sky-400 to-violet-500 text-white text-2xl min-h-[60px] py-3 mt-1 rounded-[24px] shadow-[0_10px_20px_rgba(167,139,250,0.3)] transition-all duration-300 active:scale-95 flex items-center justify-center space-x-2 tracking-wide font-bold"
+              disabled={loading}
+              className={`w-full shrink-0 bg-gradient-to-r from-sky-400 to-violet-500 text-white min-h-[60px] py-3 mt-1 rounded-[24px] shadow-[0_10px_20px_rgba(167,139,250,0.3)] transition-all duration-300 flex items-center justify-center space-x-2 tracking-wide font-bold ${loading ? 'opacity-90' : 'active:scale-95'}`}
             >
-              <span className="text-2xl">✨</span>
-              <span>진짜 놀이 만들기!</span>
+              <span className="text-2xl">{loading ? '⏳' : '✨'}</span>
+              <span className="text-[20px] md:text-[22px]">{loading ? 'AI가 게임 문제를 창조하고 있어요...' : '진짜 놀이 만들기!'}</span>
             </button>
           </div>
 
@@ -568,26 +602,17 @@ export default function App() {
 
           {/* 인게임 모달 (실제 작동하는 게임 시뮬레이터) */}
           {isGameModalOpen && (
-            <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
-               <div className="bg-white w-full h-[90%] rounded-[30px] flex flex-col overflow-hidden shadow-2xl">
-                 <div className="p-4 bg-gray-100 flex justify-between items-center border-b border-gray-200">
-                   <div className="font-sans font-bold text-gray-600 truncate text-sm flex-1 mr-4">{generatedUrl}</div>
-                   <button onClick={() => setIsGameModalOpen(false)} className="text-2xl w-8 h-8 flex items-center justify-center bg-gray-200 rounded-full text-gray-600 active:scale-90">✕</button>
-                 </div>
-                 <div className="flex-1 bg-white relative flex flex-col p-6">
-                    {/* 게임 플레이 화면 (대체 UI) */}
-                    <div className="flex-1 flex flex-col items-center justify-center">
-                       <h3 className="text-2xl mb-4 text-center">{grade} {subject} 마스터 도전! 🔥</h3>
-                       <div className="text-7xl mb-6 animate-bounce">👾</div>
-                       <p className="text-lg text-gray-700 font-sans font-bold mb-8 text-center bg-gray-100 p-4 rounded-xl">
-                         {keywords.join(', ')} (이)가 포함된<br/>{gameType} 방식의 게임입니다!
-                       </p>
-                       <button onClick={() => { setIsGameModalOpen(false); alert("멋지게 클리어했어요! 🎉"); }} className="bg-sky-500 text-white font-bold px-8 py-3 rounded-full text-xl active:scale-95">
-                         ✨ 가상 플레이 완료 ✨
-                       </button>
-                    </div>
-                 </div>
-               </div>
+            <div className="absolute inset-0 z-50 animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute inset-0 flex flex-col bg-white">
+                <GamePlayer 
+                  grade={grade} 
+                  subject={subject} 
+                  gameType={gameType} 
+                  keywords={keywords} 
+                  gameContent={gameContent} 
+                  onClose={() => setIsGameModalOpen(false)} 
+                />
+              </div>
             </div>
           )}
 
