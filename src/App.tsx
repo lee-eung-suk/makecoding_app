@@ -19,7 +19,104 @@ const playSound = (type: keyof typeof SOUNDS) => {
   } catch (e) {}
 };
 
+// ==========================================
+// [ 게임 플레이어 (URL 접속 시 렌더링) ]
+// ==========================================
+function GamePlayer({ grade, subject, gameType, keywords }: any) {
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const handleAnswer = async (ans: string) => {
+    if (ans === '3/4') {
+      playSound('ding');
+      setFeedback('와! 정답이야! 🎉');
+      
+      // 약간의 지연 후 성공 메시지 모달
+      setTimeout(() => {
+        playSound('swoosh');
+        alert("성공적으로 클리어했어요! 멋져요! 😊");
+      }, 1000);
+      
+    } else {
+      playSound('boing');
+      setFeedback('앗, 아쉬워! 다시 한번 생각볼래? 💪');
+    }
+  };
+
+  return (
+    <div className="w-full h-full min-h-[100dvh] flex flex-col bg-[#fdfdfd] relative" style={{ fontFamily: "'Jua', 'Gowun Dodum', sans-serif" }}>
+      <div className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" style={{ backgroundImage: "url('https://i.imgur.com/93JyoSw.jpg')" }}></div>
+      <div className="fixed inset-0 z-0 bg-white/70 backdrop-blur-[15px] pointer-events-none"></div>
+
+      <div className="relative z-10 w-full max-w-[430px] mx-auto h-[100dvh] bg-white/80 backdrop-blur-[20px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col overflow-hidden">
+        
+        {/* 상단 HUD */}
+        <div className="flex justify-between p-4 z-10 shrink-0">
+          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200">
+            <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">점수 ⭐</span>
+            <span className="text-xl text-sky-500 leading-none font-bold">1,250</span>
+          </div>
+          <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-4 flex flex-col items-center shadow-sm border border-gray-200">
+            <span className="text-[12px] text-gray-500 font-sans font-bold mb-0.5">체력 💖</span>
+            <div className="flex space-x-1 text-base">
+              <span>❤️</span><span>❤️</span><span className="opacity-30">❤️</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 중앙 보스 영역 */}
+        <div className="flex-1 flex flex-col items-center justify-center relative px-4">
+          <div className="absolute top-2 w-full text-center px-4 animate-pulse">
+             <p className="inline-block bg-sky-100/90 text-sky-600 px-4 py-1.5 rounded-full text-[14px] font-sans font-bold tracking-wide border border-sky-300 shadow-sm">
+               {grade} {subject} 마스터 도전! 🔥
+             </p>
+             <p className="mt-2 text-sm text-gray-600 font-sans font-bold">테마: {keywords.join(', ')}</p>
+          </div>
+
+          <div className="w-32 h-32 md:w-40 md:h-40 bg-pink-100 rounded-full border-[5px] border-white shadow-xl relative flex items-center justify-center animate-bounce duration-1000 mt-10">
+            <div className="absolute -top-4 bg-pink-500 text-white font-sans font-bold text-[13px] px-4 py-1 rounded-full shadow-md z-10 whitespace-nowrap tracking-wide border border-white">
+              {gameType} 진행중! 👾
+            </div>
+            <span className="text-6xl md:text-7xl drop-shadow-md">👾</span>
+            <div className="absolute -bottom-3 w-28 h-3.5 bg-white/90 rounded-full border border-gray-200 shadow-sm overflow-hidden p-0.5">
+              <div className="w-2/3 h-full bg-pink-500 rounded-full"></div>
+            </div>
+          </div>
+        </div>
+
+        {/* 하단 문제 영역 */}
+        <div className="bg-white p-5 md:p-6 rounded-t-[36px] border-t-2 border-gray-100 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] pb-8 z-20">
+          <h3 className="text-center text-[24px] text-gray-800 mb-4 drop-shadow-sm leading-snug font-black">
+            1/4 더하기 2/4 의<br />정답은 무얼까? 😊
+          </h3>
+
+          {feedback && (
+            <div className="text-center text-[18px] text-violet-500 mb-4 font-sans font-bold animate-in fade-in zoom-in h-7">
+              {feedback}
+            </div>
+          )}
+          {!feedback && <div className="h-7 mb-4"></div>}
+
+          <div className="grid grid-cols-2 gap-3 pb-2">
+            {['3/4', '2/8', '3/8', '4/4'].map((ans) => (
+              <button 
+                key={ans} 
+                onClick={() => handleAnswer(ans)}
+                className="bg-white border-2 border-gray-200 py-5 min-h-[60px] rounded-[24px] shadow-sm text-2xl text-gray-700 transition-all duration-200 active:scale-95 hover:bg-sky-50 hover:border-sky-400 font-bold"
+              >
+                {ans}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  // 플레이 모드 상태 (URL에 ?play=... 접속 시 true)
+  const [isPlayMode, setIsPlayMode] = useState(false);
+
   // 4단계 마법사 상태: 1(올리기), 2(확인), 3(제작), 4(공유)
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [loading, setLoading] = useState(false);
@@ -31,8 +128,9 @@ export default function App() {
   const [keywords, setKeywords] = useState(['타이머', '점수', '하트']);
   const [customKeyword, setCustomKeyword] = useState('');
   
-  // 게임 피드백 상태 (3단계)
-  const [feedback, setFeedback] = useState<string | null>(null);
+  // 생성된 URL 상태
+  const [generatedUrl, setGeneratedUrl] = useState<string>('');
+  const [isGameModalOpen, setIsGameModalOpen] = useState(false);
 
   // ==========================================
   // [ 카메라 엔진 ]
@@ -42,9 +140,23 @@ export default function App() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
-  // 생성된 URL 상태
-  const [generatedUrl, setGeneratedUrl] = useState<string>('');
-  const [isGameModalOpen, setIsGameModalOpen] = useState(false);
+  useEffect(() => {
+    // 접속 시 URL 확인. play 쿼리스트링이 있으면 플레이 모드로 진입!
+    const searchParams = new URLSearchParams(window.location.search);
+    const playData = searchParams.get('play');
+    if (playData) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(atob(playData)));
+        setGrade(decoded.grade);
+        setSubject(decoded.subject);
+        setGameType(decoded.gameType);
+        setKeywords(decoded.keywords);
+        setIsPlayMode(true);
+      } catch (err) {
+        console.error("Failed to parse play data", err);
+      }
+    }
+  }, []);
 
   // 탭 정의 (줄바꿈 포함)
   const tabs = [
@@ -188,39 +300,21 @@ export default function App() {
     });
 
     setTimeout(() => {
-      const gameId = Date.now();
-      const mockGameUrl = `https://vibe-game.app/game/${gameId}`;
-      setGeneratedUrl(mockGameUrl);
+      // 진짜로 플레이 가능한 URL (base64 인코딩)
+      const gameConfig = { grade, subject, gameType, keywords };
+      const base64Config = btoa(encodeURIComponent(JSON.stringify(gameConfig)));
+      const baseUrl = window.location.href.split('?')[0];
+      const realPlayUrl = `${baseUrl}?play=${base64Config}`;
+      
+      setGeneratedUrl(realPlayUrl);
       setLoading(false);
       setStep(3);
     }, 2000);
   };
 
-  const handleAnswer = async (ans: string) => {
-    if (ans === '3/4') {
-      playSound('ding');
-      setFeedback('와! 정답이야! 🎉');
-
-      // 게임 결과를 Supabase에 저장!
-      await saveGameResult({
-        grade,
-        subject,
-        gameType,
-        keywords,
-        score: 1250,
-      });
-
-      // 정답을 맞추면 2초 뒤에 공유하기(4단계)로 자동 이동
-      setTimeout(() => {
-        playSound('swoosh');
-        setStep(4);
-      }, 2000);
-      
-    } else {
-      playSound('boing');
-      setFeedback('앗, 아쉬워! 다시 한번 생각볼래? 💪');
-    }
-  };
+  if (isPlayMode) {
+    return <GamePlayer grade={grade} subject={subject} gameType={gameType} keywords={keywords} />;
+  }
 
   return (
     <div 
