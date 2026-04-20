@@ -22,17 +22,53 @@ const playSound = (type: keyof typeof SOUNDS) => {
 // ==========================================
 // [ 게임 플레이어 (URL 접속 시 렌더링) ]
 // ==========================================
-function GamePlayer({ grade, subject, gameType, keywords, gameContent, onClose }: any) {
+function GamePlayer({ grade, subject, gameType, keywords, gameContent: initialContent, onClose }: any) {
+  const [gameContent, setGameContent] = useState<any>(initialContent);
+  const [loading, setLoading] = useState(!initialContent);
   const [stageIndex, setStageIndex] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [hp, setHp] = useState(3);
   const [score, setScore] = useState(0);
 
+  useEffect(() => {
+    if (!initialContent) {
+      // URL로 공유받고 들어온 친구를 위해 게임을 즉석에서 창조합니다!
+      const generateForGuest = async () => {
+        try {
+          const res = await fetch("/api/generate-game", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ grade, subject, gameType, keywords })
+          });
+          if (!res.ok) throw new Error("게임 생성 API 호출 실패");
+          const data = await res.json();
+          setGameContent(data);
+        } catch (e) {
+          console.error(e);
+          alert("친구의 게임을 불러오는 중 문제가 생겼어요! 다시 접속해주세요.");
+        } finally {
+          setLoading(false);
+        }
+      };
+      generateForGuest();
+    }
+  }, [initialContent, grade, subject, gameType, keywords]);
+
   // 로딩이나 데미 데이터 예외 처리
+  if (loading) {
+    return (
+      <div className="w-full h-[100dvh] flex flex-col items-center justify-center p-4 bg-sky-50 relative">
+        <div className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 pointer-events-none" style={{ backgroundImage: "url('https://i.imgur.com/93JyoSw.jpg')" }}></div>
+        <div className="text-6xl animate-bounce mb-6 relative z-10">🪄</div>
+        <div className="text-xl text-sky-600 font-bold font-sans animate-pulse relative z-10">친구가 보낸 게임을 마법으로 불러오고 있어요... ⏳</div>
+      </div>
+    );
+  }
+
   if (!gameContent || !gameContent.stages || gameContent.stages.length === 0) {
     return (
       <div className="w-full h-[100dvh] flex items-center justify-center p-4">
-        <div className="animate-pulse text-sky-500 font-bold">API 연결 중이거나 데이터가 부족합니다! 😅</div>
+        <div className="animate-pulse text-sky-500 font-bold">데이터를 불러올 수 없습니다! 다시 시도해주세요 😅</div>
       </div>
     );
   }
@@ -400,8 +436,8 @@ export default function App() {
         score: 0,
       });
 
-      // 3. 진짜로 플레이 가능한 URL (base64 인코딩) 생성
-      const gameConfig = { grade, subject, gameType, keywords, gameContent: generatedContent };
+      // 3. 진짜로 플레이 가능한 URL (base64 인코딩) 생성 - URL 길이 제한 방지를 위해 gameContent는 제외
+      const gameConfig = { grade, subject, gameType, keywords };
       const base64Config = btoa(encodeURIComponent(JSON.stringify(gameConfig)));
       const baseUrl = window.location.href.split('?')[0];
       const realPlayUrl = `${baseUrl}?play=${base64Config}`;
@@ -574,14 +610,14 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[14px] text-gray-600 ml-1 font-sans font-bold">놀이 종류 🎮</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['퀴즈형', '액션형', '퍼즐형', '보스전'].map((type) => (
+              <div className="space-y-1.5 flex flex-col pt-1">
+                <label className="text-[14px] text-gray-600 ml-1 font-sans font-bold">놀이 테마 선택 🎮</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {['🔥 보스전', '🚪 방탈출', '🧩 미로찾기', '🕵️ 탐정단', '🏪 마트게임', '🏃 서바이벌', '👽 우주탐험', '🐾 동물농장'].map((type) => (
                     <button
                       key={type}
                       onClick={() => { playSound('pop'); setGameType(type); }}
-                      className={`min-h-[48px] py-1 rounded-[20px] text-[15px] font-sans font-bold transition-all duration-300 active:scale-95 shadow-sm border-2 ${
+                      className={`min-h-[44px] py-1 px-1 rounded-[16px] text-[13px] md:text-[14px] font-sans font-bold transition-all duration-300 active:scale-95 shadow-sm border-2 ${
                         gameType === type 
                           ? 'bg-sky-400 text-white border-sky-400' 
                           : 'bg-white text-gray-600 border-gray-200 hover:border-sky-300'
