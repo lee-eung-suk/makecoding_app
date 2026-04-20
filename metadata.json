@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": [],
+  "name": "에듀테크 마법사",
+  "description": "사진을 찍고 AI로 학습 게임을 만드는 서비스",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": []
 }

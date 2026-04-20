@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { saveGameResult } from './lib/supabase';
+import { QRCodeSVG } from 'qrcode.react';
 
 // ==========================================
 // [ 사운드 엔진 ]
@@ -33,6 +34,18 @@ export default function App() {
   // 게임 피드백 상태 (3단계)
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  // ==========================================
+  // [ 카메라 엔진 ]
+  // ==========================================
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+
+  // 생성된 URL 상태
+  const [generatedUrl, setGeneratedUrl] = useState<string>('');
+  const [isGameModalOpen, setIsGameModalOpen] = useState(false);
+
   // 탭 정의 (줄바꿈 포함)
   const tabs = [
     { id: 1, label: '사진\n올리기' },
@@ -46,47 +59,104 @@ export default function App() {
     setStep(newStep);
   };
 
-  // 사진 업로드 및 진~짜 AI 분석(Gemini)
+  const copyLink = () => {
+    if (generatedUrl) {
+      navigator.clipboard.writeText(generatedUrl);
+      playSound('ding');
+      alert('링크가 복사되었습니다! 📋🔗\n' + generatedUrl);
+    }
+  };
+
+  // 공통 이미지 분석 함수
+  const analyzeImage = async (base64DataUrl: string, mimeType: string) => {
+    playSound('ding');
+    setLoading(true);
+
+    try {
+      const imageBase64 = base64DataUrl.split(",")[1];
+
+      const res = await fetch("/api/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64, mimeType })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setGrade(data.grade || "3학년");
+        setSubject(data.subject || "수학");
+        setGameType(data.gameType || "보스전");
+        if (data.keywords && Array.isArray(data.keywords)) {
+           setKeywords(data.keywords.slice(0, 4));
+        }
+      } else {
+        console.error("AI 분석 실패:", await res.text());
+      }
+    } catch (err) {
+      console.error("Analysis error", err);
+    } finally {
+      setLoading(false);
+      setStep(2);
+    }
+  };
+
+  // 사진 업로드
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      playSound('ding');
-      setLoading(true);
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        analyzeImage(reader.result as string, file.type);
+      };
+    }
+  };
 
-      try {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = async () => {
-          const base64Str = reader.result as string;
-          const imageBase64 = base64Str.split(",")[1];
-          const mimeType = file.type;
+  // 인앱 카메라 열기 (웹캠/모바일 카메라 지원)
+  const openCamera = async () => {
+    playSound('pop');
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      setStream(mediaStream);
+      setIsCameraOpen(true);
+    } catch (err) {
+      console.error("Camera access denied:", err);
+      alert("카메라 및 웹캠 권한이 필요합니다! 브라우저 설정(주소창 자물쇠 아이콘)에서 권한을 허용해주세요. 😊");
+    }
+  };
 
-          const res = await fetch("/api/analyze-image", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64, mimeType })
-          });
+  useEffect(() => {
+    if (isCameraOpen && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [isCameraOpen, stream]);
 
-          if (res.ok) {
-            const data = await res.json();
-            setGrade(data.grade || "3학년");
-            setSubject(data.subject || "수학");
-            setGameType(data.gameType || "보스전");
-            if (data.keywords && Array.isArray(data.keywords)) {
-               setKeywords(data.keywords.slice(0, 4)); // 최대 4개까지만
-            }
-          } else {
-            console.error("AI 분석 실패:", await res.text());
-          }
-          
-          setLoading(false);
-          setStep(2); // 분석 완료 후 확인 탭으로 넘어감
-        };
-      } catch (err) {
-        console.error("File upload error", err);
-        setLoading(false);
-        setStep(2);
-      }
+  // 카메라 닫기
+  const closeCamera = () => {
+    playSound('pop');
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    setIsCameraOpen(false);
+  };
+
+  // 찰칵!
+  const takePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      playSound('pop');
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      
+      closeCamera();
+      analyzeImage(dataUrl, 'image/jpeg');
     }
   };
 
@@ -104,13 +174,26 @@ export default function App() {
     setKeywords(keywords.filter(kw => kw !== kwToRemove));
   };
   
-  const handleMakeGame = () => {
+  const handleMakeGame = async () => {
     playSound('ding');
     setLoading(true);
+    
+    // 게임 결과를 Supabase에 저장 (더미 점수로 일단 생성)
+    await saveGameResult({
+      grade,
+      subject,
+      gameType,
+      keywords,
+      score: 0,
+    });
+
     setTimeout(() => {
+      const gameId = Date.now();
+      const mockGameUrl = `https://vibe-game.app/game/${gameId}`;
+      setGeneratedUrl(mockGameUrl);
       setLoading(false);
       setStep(3);
-    }, 1500);
+    }, 2000);
   };
 
   const handleAnswer = async (ans: string) => {
@@ -154,6 +237,34 @@ export default function App() {
       {/* 📱 중앙 모바일 시뮬레이터 컨테이너 (고정 너비 430px) */}
       <div className="relative z-10 w-full max-w-[430px] mx-auto h-[100dvh] sm:h-[850px] bg-white/80 backdrop-blur-[20px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex flex-col sm:my-8 sm:rounded-[50px] sm:border-[8px] sm:border-gray-200 overflow-hidden transition-all duration-300">
         
+        {/* 인앱 카메라 오버레이 */}
+        {isCameraOpen && (
+          <div className="absolute inset-0 z-[100] bg-black flex flex-col animate-in fade-in zoom-in-95 duration-300">
+             <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
+               <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+               <canvas ref={canvasRef} className="hidden" />
+               <div className="absolute top-4 left-0 right-0text-center flex justify-center pointer-events-none">
+                 <div className="bg-black/40 text-white px-4 py-1.5 rounded-full text-sm font-bold backdrop-blur-md">마법의 렌즈 🪄</div>
+               </div>
+             </div>
+             <div className="p-6 bg-black/90 flex items-center justify-around pb-10">
+                <button 
+                  onClick={closeCamera} 
+                  className="w-14 h-14 rounded-full bg-gray-800 text-white flex items-center justify-center text-2xl font-sans active:scale-90 transition-transform"
+                >
+                  ✕
+                </button>
+                <button 
+                  onClick={takePhoto} 
+                  className="w-20 h-20 rounded-full border-4 border-white bg-white/20 flex items-center justify-center p-1.5 active:scale-90 transition-transform"
+                >
+                  <div className="w-full h-full bg-white rounded-full"></div>
+                </button>
+                <div className="w-14 h-14"></div> {/* 레이아웃 밸런스 */}
+             </div>
+          </div>
+        )}
+
         {/* ✨ 헤더 & 타이틀 */}
         <header className="px-4 py-8 pb-5 text-center shrink-0">
            <h1 className="text-[26px] font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-sky-500 to-violet-500 leading-tight">
@@ -204,13 +315,13 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <label 
+              <button 
+                onClick={openCamera}
                 className="flex flex-col items-center justify-center bg-sky-50/90 min-h-[120px] rounded-[24px] border-2 border-sky-200 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer hover:shadow-md"
               >
                 <span className="text-4xl mb-2">📷</span>
                 <span className="text-sky-600 text-[15px] font-sans font-bold tracking-wide">사진 찍기</span>
-                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleUpload} />
-              </label>
+              </button>
               <label 
                 className="flex flex-col items-center justify-center bg-violet-50/90 min-h-[120px] rounded-[24px] border-2 border-violet-200 shadow-sm transition-all duration-300 active:scale-95 cursor-pointer hover:shadow-md"
               >
@@ -321,110 +432,103 @@ export default function App() {
             </button>
           </div>
 
-          {/* 3단계: 제작 하기 (게임 플레이) */}
+          {/* 3단계: 제작 하기 (결과 URL 렌더링 엔진) */}
           <div className={`flex flex-col w-full h-full animate-in fade-in slide-in-from-right-4 duration-500 ${step === 3 ? 'block' : 'hidden'}`}>
-            
-            <div className="text-center space-y-1 mb-3 mt-1 hidden">
-              <h2 className="text-[22px] text-gray-800">놀이 시작! 🎮</h2>
+            <div className="text-center space-y-1 mb-6 mt-4">
+              <h2 className="text-[26px] text-gray-800 font-black">🎉 게임 완성!</h2>
+              <p className="text-[15px] text-gray-500 font-sans font-bold">와! 나만의 게임이 완성됐어!<br/>웹에서 바로 실행할 수 있는 URL이 나왔어.</p>
             </div>
             
-            <div className="bg-white/80 backdrop-blur-[15px] border-2 border-white rounded-[36px] overflow-hidden shadow-lg flex flex-col flex-1 relative min-h-[400px]">
+            <div className="bg-white/90 backdrop-blur-[15px] border-2 border-sky-100 rounded-[36px] p-6 shadow-xl flex flex-col flex-1 relative mb-6 items-center justify-center space-y-6">
               
-              {/* 상단 HUD */}
-              <div className="absolute top-4 left-4 right-4 flex justify-between z-10 pointer-events-none">
-                <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-3 flex flex-col items-center shadow-sm border border-gray-100">
-                  <span className="text-[11px] text-gray-500 font-sans font-bold mb-0.5">점수 ⭐</span>
-                  <span className="text-lg text-sky-500 leading-none">1,250</span>
-                </div>
-                <div className="bg-white/90 backdrop-blur-md rounded-[16px] py-1.5 px-3 flex flex-col items-center shadow-sm border border-gray-100">
-                  <span className="text-[11px] text-gray-500 font-sans font-bold mb-0.5">체력 💖</span>
-                  <div className="flex space-x-0.5 text-sm">
-                    <span>❤️</span><span>❤️</span><span className="opacity-30">❤️</span>
-                  </div>
-                </div>
+              <div className="w-full bg-gray-50 p-4 rounded-[20px] border border-gray-200 shadow-inner flex flex-col items-center">
+                <span className="text-[13px] text-gray-500 font-sans font-bold mb-2">당신의 고유 게임 주소</span>
+                <span className="text-sky-500 font-sans font-bold text-center break-all w-full px-2">
+                  {generatedUrl || "게임이 준비중입니다..."}
+                </span>
               </div>
 
-              {/* 중앙 보스 영역 */}
-              <div className="flex-1 flex flex-col items-center justify-center pt-24 pb-4 relative min-h-[220px]">
-                <div className="absolute top-8 w-full text-center px-4 animate-pulse">
-                   <p className="inline-block bg-sky-100 text-sky-600 px-3 py-1 rounded-full text-[13px] font-sans font-bold tracking-wide border border-sky-200 shadow-sm">
-                     {grade} {subject} 마스터 도전! 🔥
-                   </p>
-                </div>
-
-                <div className="w-32 h-32 bg-pink-100 rounded-full border-[5px] border-white shadow-xl relative flex items-center justify-center animate-bounce duration-1000 mt-4">
-                  <div className="absolute -top-4 bg-pink-500 text-white font-sans font-bold text-[12px] px-3 py-1 rounded-full shadow-md z-10 whitespace-nowrap tracking-wide border border-white">
-                    보스: 거대 괴물 👾
-                  </div>
-                  <span className="text-6xl drop-shadow-md">👾</span>
-                  {/* 체력바 */}
-                  <div className="absolute -bottom-2 w-24 h-3 bg-white/90 rounded-full border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="w-2/3 h-full bg-pink-500 rounded-full"></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 하단 문제 및 보기 영역 */}
-              <div className="bg-white p-5 md:p-6 rounded-t-[36px] border-t-2 border-gray-100 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.03)] pb-8 mt-4">
-                <h3 className="text-center text-[22px] text-gray-800 mb-4 drop-shadow-sm leading-snug">
-                  1/4 더하기 2/4 의<br />정답은 무얼까? 😊
-                </h3>
-
-                {feedback && (
-                  <div className="text-center text-[16px] text-violet-500 mb-4 font-sans font-bold animate-in fade-in zoom-in h-6">
-                    {feedback}
-                  </div>
-                )}
-                {!feedback && <div className="h-6 mb-4"></div>}
-
-                <div className="grid grid-cols-2 gap-3 pb-2">
-                  {['3/4', '2/8', '3/8', '4/4'].map((ans) => (
-                    <button 
-                      key={ans} 
-                      onClick={() => handleAnswer(ans)}
-                      className="bg-white border-2 border-gray-200 py-4 min-h-[60px] rounded-[20px] shadow-sm text-2xl text-gray-700 transition-all duration-300 active:scale-95 hover:bg-sky-50 hover:border-sky-300 font-bold"
-                    >
-                      {ans}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <button 
+                onClick={() => setIsGameModalOpen(true)}
+                className="w-full bg-violet-500 text-white min-h-[64px] rounded-[24px] shadow-[0_10px_20px_rgba(139,92,246,0.3)] transition-all duration-300 active:scale-95 flex items-center justify-center space-x-2 font-bold text-xl"
+              >
+                <span>▶️ 게임 실행하기</span>
+              </button>
+              
+              <button 
+                onClick={copyLink}
+                className="w-full bg-white text-sky-600 border-2 border-sky-200 min-h-[64px] rounded-[24px] shadow-sm transition-all duration-300 active:scale-95 flex items-center justify-center space-x-2 font-bold text-lg"
+              >
+                <span>📋 링크 복사</span>
+              </button>
+              
             </div>
+            
+            <button
+               onClick={() => goToStep(4)}
+               className="w-full shrink-0 bg-gray-800 text-white text-[16px] font-sans font-bold mb-2 py-4 rounded-[24px] shadow-md transition-all duration-300 active:scale-95 min-h-[56px]"
+            >
+               친구들에게 공유해볼까? 💌
+            </button>
           </div>
+
+          {/* 인게임 모달 (실제 작동하는 게임 시뮬레이터) */}
+          {isGameModalOpen && (
+            <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-200">
+               <div className="bg-white w-full h-[90%] rounded-[30px] flex flex-col overflow-hidden shadow-2xl">
+                 <div className="p-4 bg-gray-100 flex justify-between items-center border-b border-gray-200">
+                   <div className="font-sans font-bold text-gray-600 truncate text-sm flex-1 mr-4">{generatedUrl}</div>
+                   <button onClick={() => setIsGameModalOpen(false)} className="text-2xl w-8 h-8 flex items-center justify-center bg-gray-200 rounded-full text-gray-600 active:scale-90">✕</button>
+                 </div>
+                 <div className="flex-1 bg-white relative flex flex-col p-6">
+                    {/* 게임 플레이 화면 (대체 UI) */}
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                       <h3 className="text-2xl mb-4 text-center">{grade} {subject} 마스터 도전! 🔥</h3>
+                       <div className="text-7xl mb-6 animate-bounce">👾</div>
+                       <p className="text-lg text-gray-700 font-sans font-bold mb-8 text-center bg-gray-100 p-4 rounded-xl">
+                         {keywords.join(', ')} (이)가 포함된<br/>{gameType} 방식의 게임입니다!
+                       </p>
+                       <button onClick={() => { setIsGameModalOpen(false); alert("멋지게 클리어했어요! 🎉"); }} className="bg-sky-500 text-white font-bold px-8 py-3 rounded-full text-xl active:scale-95">
+                         ✨ 가상 플레이 완료 ✨
+                       </button>
+                    </div>
+                 </div>
+               </div>
+            </div>
+          )}
 
           {/* 4단계: 공유 하기 */}
           <div className={`flex flex-col gap-6 w-full h-full animate-in fade-in slide-in-from-right-4 duration-500 ${step === 4 ? 'block' : 'hidden'}`}>
             <div className="text-center space-y-1 mb-2 mt-4">
-              <h2 className="text-[24px] text-gray-800">놀이 만들기 성공 🎉</h2>
-              <p className="text-[14px] text-gray-500 font-sans">바코드나 링크로 친구들에게 공유해봐!</p>
+              <h2 className="text-[26px] text-gray-800 font-black">📱 친구랑 같이 해보자!</h2>
+              <p className="text-[14px] text-gray-500 font-sans">바코드를 스캔하면 내 폰에서 바로 실행돼요!</p>
             </div>
 
             <div className="bg-white/70 backdrop-blur-[15px] rounded-[40px] p-8 shadow-sm border border-gray-200 flex-1 flex flex-col items-center justify-center w-full">
               
-              {/* 바코드/QR 가짜 영역 UI */}
-              <div className="bg-white p-6 rounded-[30px] shadow-md border border-gray-100 mb-8 transform transition-transform hover:scale-105 duration-300">
-                <div className="w-40 h-40 border-4 border-dashed border-violet-300 rounded-[20px] flex items-center justify-center bg-violet-50">
-                   <div className="text-center space-y-1.5">
-                      <div className="text-5xl">📱</div>
-                      <div className="text-violet-500 font-sans font-black text-[13px] tracking-widest mt-1">QR CODE</div>
-                   </div>
+              {/* 실제 QR 코드 렌더러 */}
+              <div className="bg-white p-6 rounded-[30px] shadow-md border border-gray-100 mb-6 transform transition-transform hover:scale-105 duration-300">
+                <div className="flex items-center justify-center">
+                  {generatedUrl ? (
+                    <QRCodeSVG value={generatedUrl} size={160} level={"H"} includeMargin={true} />
+                  ) : (
+                    <div className="w-[160px] h-[160px] bg-gray-100 flex items-center justify-center text-gray-400 text-sm font-sans">QR 준비중...</div>
+                  )}
                 </div>
+              </div>
+
+              <div className="w-full bg-violet-50 p-4 rounded-[20px] border border-violet-100 mb-6 flex items-center shadow-inner overflow-hidden">
+                <span className="text-2xl mr-3 shrink-0">🔗</span>
+                <span className="text-violet-600 font-sans font-bold text-sm truncate flex-1">{generatedUrl}</span>
               </div>
 
               <div className="flex w-full gap-3">
                 <button 
-                  onClick={() => playSound('pop')}
+                  onClick={copyLink}
                   className="flex-1 flex flex-col items-center justify-center bg-sky-50 text-sky-600 transition-all duration-300 active:scale-95 space-y-2 py-5 rounded-[24px] border border-sky-200 hover:bg-sky-100 shadow-sm"
                 >
-                  <span className="text-3xl">🔗</span>
+                  <span className="text-3xl">📋</span>
                   <span className="text-[15px] font-sans font-bold">링크 복사</span>
-                </button>
-                <button 
-                  onClick={() => playSound('pop')}
-                  className="flex-1 flex flex-col items-center justify-center bg-pink-50 text-pink-600 transition-all duration-300 active:scale-95 space-y-2 py-5 rounded-[24px] border border-pink-200 hover:bg-pink-100 shadow-sm"
-                >
-                  <span className="text-3xl">⬇️</span>
-                  <span className="text-[15px] font-sans font-bold">그림 저장</span>
                 </button>
               </div>
 
